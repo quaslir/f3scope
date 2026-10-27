@@ -1,13 +1,16 @@
 #include "bsp/bsp.hpp"
 #include "bsp/board.hpp"
+#include "drivers/uart.hpp"
 #include "bsp/clock.hpp"
 #include "cmsis_gcc.h"
 #include "stm32f3xx_hal.h"
+#include <cstdint>
 namespace bsp {
     void init() {
         HAL_Init();
         __HAL_RCC_GPIOA_CLK_ENABLE();
         clock::init();
+        drivers::uart::init(115200);
         GPIO_InitTypeDef gpio{};
         gpio.Pin = board::LD2_PIN;
         gpio.Mode = GPIO_MODE_OUTPUT_PP;
@@ -26,5 +29,13 @@ namespace bsp {
     void error_handler() {
         __disable_irq();
         while(1);
+    }
+
+    uint32_t sysclk_hz() {
+        return SystemCoreClock;
+    }
+
+    void delay_ms(uint32_t ms) {
+        HAL_Delay(ms);
     }
 }

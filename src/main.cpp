@@ -1,7 +1,6 @@
-#include "stm32f303xe.h"
+
 #include "stm32f3xx_hal.h"
-#include "stm32f3xx_hal_gpio.h"
-#include "stm32f3xx_hal_rcc.h"
+#include <cstdio>
 
 #include "bsp/bsp.hpp"
 int main() {
@@ -11,6 +10,7 @@ int main() {
 
         while(1) {
                 bsp::toggle_led();
-                HAL_Delay(500);
+                bsp::delay_ms(200);
+                std::printf("... %lu Hz\n\n", bsp::sysclk_hz());
         }
 }
