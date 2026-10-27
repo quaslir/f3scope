@@ -3,7 +3,9 @@ if(NOT CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/cmake/arm-none-eabi.cmake)
 endif()
 project(f3scope C CXX ASM)
-
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Debug)
+endif()
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -45,6 +47,7 @@ add_executable(firmware
 
     src/bsp/bsp.cpp
     src/bsp/irq.cpp
+    src/bsp/clock.cpp
 )
 target_link_libraries(firmware PRIVATE hal)
 

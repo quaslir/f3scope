@@ -1,10 +1,13 @@
 #include "bsp/bsp.hpp"
 #include "bsp/board.hpp"
+#include "bsp/clock.hpp"
+#include "cmsis_gcc.h"
 #include "stm32f3xx_hal.h"
 namespace bsp {
     void init() {
         HAL_Init();
         __HAL_RCC_GPIOA_CLK_ENABLE();
+        clock::init();
         GPIO_InitTypeDef gpio{};
         gpio.Pin = board::LD2_PIN;
         gpio.Mode = GPIO_MODE_OUTPUT_PP;
@@ -18,5 +21,10 @@ namespace bsp {
     }
     void toggle_led() {
         HAL_GPIO_TogglePin(board::LD2_PORT, board::LD2_PIN);
+    }
+
+    void error_handler() {
+        __disable_irq();
+        while(1);
     }
 }

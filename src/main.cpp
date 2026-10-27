@@ -5,7 +5,6 @@
 
 #include "bsp/bsp.hpp"
 int main() {
-    while (1) {
         bsp::init();
         bsp::set_led(true);
 
@@ -14,5 +13,4 @@ int main() {
                 bsp::toggle_led();
                 HAL_Delay(500);
         }
-    }
 }
