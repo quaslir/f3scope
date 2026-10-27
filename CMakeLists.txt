@@ -42,6 +42,9 @@ target_compile_definitions(hal PUBLIC STM32F303xE USE_HAL_DRIVER)
 add_executable(firmware
     startup/startup_stm32f303xe.s
     src/main.cpp
+
+    src/bsp/bsp.cpp
+    src/bsp/irq.cpp
 )
 target_link_libraries(firmware PRIVATE hal)
 
