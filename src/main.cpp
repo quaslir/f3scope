@@ -1,10 +1,11 @@
 
-#include "stm32f3xx_hal.h"
+#include "drivers/uart.hpp"
 #include <cstdio>
 
 #include "bsp/bsp.hpp"
 int main() {
         bsp::init();
+        drivers::uart::init(115200);
         bsp::set_led(true);
 
 
