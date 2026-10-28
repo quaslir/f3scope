@@ -51,6 +51,8 @@ add_executable(firmware
 
     src/drivers/uart.cpp
     src/drivers/adc.cpp
+
+    src/drivers/tim.cpp
 )
 target_link_libraries(firmware PRIVATE hal)
 

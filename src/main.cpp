@@ -4,10 +4,13 @@
 
 #include "bsp/bsp.hpp"
 #include "drivers/adc.hpp"
+#include "drivers/tim.hpp"
 int main() {
         bsp::init();
         drivers::uart::init(115200);
         drivers::adc::init();
+        drivers::tim::init(100'000);
+        drivers::tim::start();
         bsp::set_led(true);
 
         std::printf("\nf3scope ADC test, SYSCLK = %lu Hz\n", bsp::sysclk_hz());
