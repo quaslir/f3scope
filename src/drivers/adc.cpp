@@ -6,6 +6,8 @@ namespace drivers::adc {
 
     namespace {
         ADC_HandleTypeDef hadc{};
+        DMA_HandleTypeDef hdma{};
+        volatile bool frame_ready = false;
     }
 
     void init() {
@@ -26,10 +28,29 @@ namespace drivers::adc {
     hadc.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
     hadc.Init.ContinuousConvMode = DISABLE;
     hadc.Init.NbrOfConversion = 1;
-    hadc.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-    hadc.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+    hadc.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T6_TRGO;
+    hadc.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
     hadc.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
 
+    // DMA
+
+    __HAL_RCC_DMA1_CLK_ENABLE();
+
+    hdma.Instance = DMA1_Channel1;
+    hdma.Init.Direction = DMA_PERIPH_TO_MEMORY;
+    hdma.Init.PeriphInc = DMA_PINC_DISABLE;
+    hdma.Init.MemInc = DMA_MINC_ENABLE;
+    hdma.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
+    hdma.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
+    hdma.Init.Mode = DMA_NORMAL;
+    hdma.Init.Priority = DMA_PRIORITY_HIGH;
+
+    if(HAL_DMA_Init(&hdma) != HAL_OK) {
+        bsp::error_handler();
+    }
+    __HAL_LINKDMA(&hadc, DMA_Handle, hdma);
+    HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 1, 0);
+    HAL_NVIC_EnableIRQ(DMA2_Channel1_IRQn);
     if(HAL_ADC_Init(&hadc) != HAL_OK) {
         bsp::error_handler();
     }
@@ -45,6 +66,7 @@ namespace drivers::adc {
     if(HAL_ADCEx_Calibration_Start(&hadc, ADC_SINGLE_ENDED) != HAL_OK) {
         bsp::error_handler();
     }
+
     }
 
     uint16_t read() {
