@@ -12,4 +12,8 @@ namespace bsp::board {
     inline constexpr uint16_t UART_TX_PIN  = GPIO_PIN_2;
     inline constexpr uint16_t UART_RX_PIN = GPIO_PIN_3;
     inline constexpr uint8_t UART_AF = GPIO_AF7_USART2;
+    inline GPIO_TypeDef* const ADC_PORT = GPIOA;
+    inline constexpr uint16_t ADC_PIN = GPIO_PIN_0;
+    inline constexpr uint32_t ADC_CHANNEL = ADC_CHANNEL_1;
+    inline ADC_TypeDef* const ADC_INSTANCE = ADC1;
 }

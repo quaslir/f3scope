@@ -50,6 +50,7 @@ add_executable(firmware
     src/bsp/clock.cpp
 
     src/drivers/uart.cpp
+    src/drivers/adc.cpp
 )
 target_link_libraries(firmware PRIVATE hal)
 
