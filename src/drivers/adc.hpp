@@ -2,5 +2,7 @@
 #include <cstdint>
 namespace drivers::adc {
 void init();
-uint16_t read();
+[[nodiscard]] uint16_t read();
+void start_capture(uint16_t * buffer, uint16_t count);
+[[nodiscard]] bool capture_done();
 }

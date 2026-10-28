@@ -50,7 +50,7 @@ namespace drivers::adc {
     }
     __HAL_LINKDMA(&hadc, DMA_Handle, hdma);
     HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 1, 0);
-    HAL_NVIC_EnableIRQ(DMA2_Channel1_IRQn);
+    HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
     if(HAL_ADC_Init(&hadc) != HAL_OK) {
         bsp::error_handler();
     }
@@ -77,5 +77,27 @@ namespace drivers::adc {
             bsp::error_handler();
         }
         return static_cast<uint16_t>(HAL_ADC_GetValue(&hadc));
+    }
+
+
+    void start_capture(uint16_t * buffer, uint16_t count) {
+        frame_ready = false;
+        if(HAL_ADC_Start_DMA(&hadc, reinterpret_cast<uint32_t*>(buffer), static_cast<uint32_t>(count)) != HAL_OK) {
+            bsp::error_handler();
+        }
+    }
+   bool capture_done() {
+        return frame_ready;
+    }
+
+
+    extern "C" {
+        void DMA1_Channel1_IRQHandler() {
+            HAL_DMA_IRQHandler(&hdma);
+        }
+
+        void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef*) {
+            frame_ready = true;
+        }
     }
 }
