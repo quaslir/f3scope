@@ -16,4 +16,8 @@ namespace bsp::board {
     inline constexpr uint16_t ADC_PIN = GPIO_PIN_0;
     inline constexpr uint32_t ADC_CHANNEL = ADC_CHANNEL_1;
     inline ADC_TypeDef* const ADC_INSTANCE = ADC1;
+    inline GPIO_TypeDef* const DAC_PORT = GPIOA;
+    inline constexpr uint16_t DAC_PIN = GPIO_PIN_4;
+    inline DAC_TypeDef* const  DAC_INSTANCE = DAC1;
+    inline constexpr uint16_t DAC_CHANNEL = DAC_CHANNEL_1;
 }

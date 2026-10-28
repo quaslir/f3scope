@@ -31,6 +31,8 @@ add_library(hal STATIC
     ${HAL_DIR}/Src/stm32f3xx_hal_tim_ex.c
     ${HAL_DIR}/Src/stm32f3xx_hal_uart.c
     ${HAL_DIR}/Src/stm32f3xx_hal_uart_ex.c
+    ${HAL_DIR}/Src/stm32f3xx_hal_dac.c
+    ${HAL_DIR}/Src/stm32f3xx_hal_dac_ex.c
     startup/system_stm32f3xx.c
 )
 target_include_directories(hal PUBLIC
@@ -53,6 +55,7 @@ add_executable(firmware
     src/drivers/adc.cpp
 
     src/drivers/tim.cpp
+    src/drivers/dac.cpp
 )
 target_link_libraries(firmware PRIVATE hal)
 
