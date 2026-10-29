@@ -15,18 +15,19 @@ namespace {
     uint16_t sine_table[SINE_POINTS];
     uint8_t header[app::protocol::HEADER_SIZE];
     uint8_t footer[app::protocol::FOOTER_SIZE];
+    constexpr uint32_t UART_BAUDRATE = 1500000;
 }
 
 int main() {
     bsp::init();
-    drivers::uart::init(115200);
+    drivers::uart::init(1500000);
     drivers::adc::init();
     drivers::dac::init();
 
     adc_timer.init(100'000);
     dac_timer.init(100'000);
 
-    app::wavegen::fill_sine(sine_table,SINE_POINTS,2048,1700);
+    app::wavegen::fill_sine(sine_table,SINE_POINTS,2048,3400);
 
     drivers::dac::start_wave(sine_table, SINE_POINTS);
     dac_timer.start();
