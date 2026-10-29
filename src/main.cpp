@@ -10,6 +10,7 @@ uint16_t frame[1000];
 
 int main() {
     bsp::init();
+    bsp::delay_ms(3000);
     drivers::uart::init(115200);
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     drivers::adc::init();

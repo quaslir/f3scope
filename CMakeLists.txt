@@ -14,7 +14,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/linker/STM32F303RETx_FLASH.ld)
 set(HAL_DIR ${CMAKE_SOURCE_DIR}/third_party/stm32f3xx_hal_driver)
 
-add_library(hal STATIC
+add_library(hal OBJECT
     ${HAL_DIR}/Src/stm32f3xx_hal.c
     ${HAL_DIR}/Src/stm32f3xx_hal_adc.c
     ${HAL_DIR}/Src/stm32f3xx_hal_adc_ex.c
