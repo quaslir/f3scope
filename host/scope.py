@@ -9,7 +9,7 @@ Packet format (all multi-byte fields little-endian):
 
 Usage:
     python scope.py                      # /dev/ttyACM0, 115200 baud, 100 kHz
-    python scope.py --port /dev/ttyACM1 --baud 921600 --rate 100000
+    python scope.py --port /dev/ttyACM0 --baud 921600 --rate 100000
     python scope.py --text               # no GUI, just print frame stats
 """
 
