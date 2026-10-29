@@ -20,4 +20,6 @@ namespace bsp::board {
     inline constexpr uint16_t DAC_PIN = GPIO_PIN_4;
     inline DAC_TypeDef* const  DAC_INSTANCE = DAC1;
     inline constexpr uint16_t DAC_CHANNEL = DAC_CHANNEL_1;
+    inline  TIM_TypeDef * const ADC_TIMER = TIM6;
+    inline  TIM_TypeDef * const DAC_TIMER = TIM7;
 }

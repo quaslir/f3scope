@@ -3,10 +3,13 @@
 #include "drivers/tim.hpp"
 #include "drivers/dac.hpp"
 #include "bsp/bsp.hpp"
+#include "bsp/board.hpp"
 #include <cstdint>
 #include <cstdio>
 
 uint16_t frame[1000];
+drivers::BasicTimer adc_timer{bsp::board::ADC_TIMER};
+drivers::BasicTimer dac_timer{bsp::board::DAC_TIMER};
 
 int main() {
     bsp::init();
@@ -15,17 +18,13 @@ int main() {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     drivers::adc::init();
     drivers::dac::init();
-    drivers::tim::init(100'000);
-
+    adc_timer.init(100'000);
     drivers::dac::set(2048);          // ~1.65 V on A2, set once
     bsp::delay_ms(10);                // let the output settle
-
     drivers::adc::start_capture(frame, 1000);
-    drivers::tim::start();
-    while (!drivers::adc::capture_done()) {
-    }
-    drivers::tim::stop();
-
+    adc_timer.start();
+    while (!drivers::adc::capture_done());
+    adc_timer.stop();
     uint16_t min = 4095, max = 0;
     for (uint16_t i = 0; i < 1000; ++i) {
         if (frame[i] < min) min = frame[i];
