@@ -1,11 +1,15 @@
-
 #include "bsp/bsp.hpp"
 #include "stm32f3xx.h"
 #include "bsp/board.hpp"
+#include "drivers/uart.hpp"
 #include <cstdint>
 
 namespace {
     UART_HandleTypeDef huart{};
+    uint8_t rx_byte{};
+    uint8_t rx_buf[64];
+    volatile uint8_t rx_head{};
+    volatile uint8_t rx_tail{};
 }
 
 namespace drivers::uart {
@@ -34,10 +38,42 @@ huart.Init.OverSampling = UART_OVERSAMPLING_16;
 if(HAL_UART_Init(&huart) != HAL_OK) {
     bsp::error_handler();
 }
+HAL_NVIC_SetPriority(USART2_IRQn, 3, 0);
+HAL_NVIC_EnableIRQ(USART2_IRQn);
 
+if(HAL_UART_Receive_IT(&huart, &rx_byte, 1) != HAL_OK) {
+    bsp::error_handler();
+}
 
 }
 void write(const uint8_t* data, uint16_t length) {
     HAL_UART_Transmit(&huart, data, length, HAL_MAX_DELAY);
+}
+
+bool read_byte(uint8_t &out) {
+    if(rx_head == rx_tail) return false;
+    out = rx_buf[rx_tail];
+    rx_tail = (rx_tail + 1) % sizeof(rx_buf);
+    return true;
+}
+
+extern "C" {
+    void USART2_IRQHandler() {
+        HAL_UART_IRQHandler(&huart);
+    }
+
+    void HAL_UART_RxCpltCallback(UART_HandleTypeDef *) {
+        uint8_t new_head = (rx_head + 1) % sizeof(rx_buf);
+        if(new_head != rx_tail)  {
+            rx_buf[rx_head] = rx_byte;
+            rx_head = new_head;
+        }
+
+        HAL_UART_Receive_IT(&huart, &rx_byte, 1);
+    }
+
+    void HAL_UART_ErrorCallback(UART_HandleTypeDef *) {
+        HAL_UART_Receive_IT(&huart, &rx_byte, 1);
+    }
 }
 }
