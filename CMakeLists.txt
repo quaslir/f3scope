@@ -58,6 +58,7 @@ add_executable(firmware
     src/drivers/dac.cpp
 
     src/app/wavegen.cpp
+    src/app/protocol.cpp
 )
 target_link_libraries(firmware PRIVATE hal)
 

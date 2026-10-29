@@ -90,7 +90,11 @@ namespace drivers::adc {
         return frame_ready;
     }
 
-
+    void stop_capture() {
+        if(HAL_ADC_Stop_DMA(&hadc) != HAL_OK) {
+            bsp::error_handler();
+        }
+    }
     extern "C" {
         void DMA1_Channel1_IRQHandler() {
             HAL_DMA_IRQHandler(&hdma);
