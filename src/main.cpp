@@ -6,44 +6,54 @@
 #include "drivers/dac.hpp"
 #include "app/protocol.hpp"
 #include "app/wavegen.hpp"
+#include "app/trigger.hpp"
 namespace {
+    constexpr uint32_t UART_BAUDRATE = 1500000;
+    constexpr uint16_t CAPTURE_SIZE = 2000;
+    constexpr uint16_t WINDOW = 1000;
+    constexpr uint8_t PRETRIGGER = 100;
+    constexpr uint16_t TRIG_LEVEL = 2048;
+    constexpr uint8_t TRIG_HYST = 50;
+    constexpr uint8_t SINE_POINTS = 100;
     drivers::BasicTimer adc_timer{bsp::board::ADC_TIMER};
     drivers::BasicTimer dac_timer{bsp::board::DAC_TIMER};
-    constexpr uint16_t FRAME_SIZE = 1000;
-    constexpr uint8_t SINE_POINTS = 100;
-    uint16_t frame[FRAME_SIZE];
+
+    uint16_t frame[CAPTURE_SIZE];
     uint16_t sine_table[SINE_POINTS];
     uint8_t header[app::protocol::HEADER_SIZE];
     uint8_t footer[app::protocol::FOOTER_SIZE];
-    constexpr uint32_t UART_BAUDRATE = 1500000;
+
 }
 
 int main() {
     bsp::init();
-    drivers::uart::init(1500000);
+    drivers::uart::init(UART_BAUDRATE);
     drivers::adc::init();
     drivers::dac::init();
 
     adc_timer.init(100'000);
     dac_timer.init(100'000);
 
-    app::wavegen::fill_sine(sine_table,SINE_POINTS,2048,3400);
+    app::wavegen::fill_sine(sine_table,SINE_POINTS,2048,1700);
 
     drivers::dac::start_wave(sine_table, SINE_POINTS);
     dac_timer.start();
     while(true) {
-        drivers::adc::start_capture(frame, FRAME_SIZE);
+        drivers::adc::start_capture(frame, CAPTURE_SIZE);
         adc_timer.start();
         while(!drivers::adc::capture_done()); // blocking
 
         adc_timer.stop();
         drivers::adc::stop_capture();
-        const uint16_t checksum = app::protocol::checksum(frame, FRAME_SIZE);
-        app::protocol::write_header(header, FRAME_SIZE);
+        auto r = app::trigger::find(frame + PRETRIGGER, CAPTURE_SIZE - WINDOW + 1,TRIG_LEVEL , TRIG_HYST, app::trigger::Edge::Rising);
+        uint16_t start = 0;
+        if(r.has_value()) start = *r;
+        const uint16_t checksum = app::protocol::checksum(frame +start , WINDOW);
+        app::protocol::write_header(header, WINDOW);
         app::protocol::write_footer(footer, checksum);
 
         drivers::uart::write(header, app::protocol::HEADER_SIZE);
-        drivers::uart::write(reinterpret_cast<const uint8_t*>(frame), sizeof(frame));
+        drivers::uart::write(reinterpret_cast<const uint8_t*>(frame + start), WINDOW * 2);
         drivers::uart::write(footer, app::protocol::FOOTER_SIZE);
         bsp::toggle_led();
     }

@@ -59,6 +59,7 @@ add_executable(firmware
 
     src/app/wavegen.cpp
     src/app/protocol.cpp
+    src/app/trigger.cpp
 )
 target_link_libraries(firmware PRIVATE hal)
 
