@@ -16,7 +16,7 @@ std::optional<uint16_t> find(const uint16_t *data, uint16_t n, uint16_t level,
       if (!armed && data[i] >= level + hysteresis) {
         armed = true;
       } else if (armed && data[i] <= level)
-          return i;
+        return i;
     }
   }
 

@@ -19,6 +19,7 @@ struct Settings {
   uint16_t level = LEVEL_MAX / 2 + 1;
   trigger::Edge edge = trigger::Edge::Rising;
   Mode mode = Mode::Auto;
+  bool single_armed{};
 };
 enum class Result : uint8_t { None, Ok, UnknownCommand, BadValue, TooLong };
 

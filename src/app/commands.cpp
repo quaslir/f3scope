@@ -70,16 +70,20 @@ Result Parser::parse(std::string_view str) {
       return Result::BadValue;
     settings_.level = val;
   } else if (name == "EDGE") {
-    if (value[0] != 'R' && value[0] != 'F')
-      return Result::BadValue;
     if (value.size() != 1)
       return Result::BadValue;
+    if (value[0] != 'R' && value[0] != 'F')
+      return Result::BadValue;
+
     settings_.edge = static_cast<trigger::Edge>(value[0]);
   } else if (name == "MODE") {
     if (value.size() != 1)
       return Result::BadValue;
     if (value[0] != 'A' && value[0] != 'N' && value[0] != 'S')
       return Result::BadValue;
+    if (value[0] == 'S') {
+      settings_.single_armed = true;
+    }
     settings_.mode = static_cast<Mode>(value[0]);
   } else {
     return Result::UnknownCommand;

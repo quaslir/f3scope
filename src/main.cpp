@@ -81,6 +81,23 @@ int main() {
     drivers::adc::stop_capture();
     auto r = app::trigger::find(frame + PRETRIGGER, CAPTURE_SIZE - WINDOW + 1,
                                 settings.level, TRIG_HYST, settings.edge);
+    bool send = false;
+
+    switch (settings.mode) {
+    case app::commands::Mode::Auto:
+      send = true;
+      break;
+    case app::commands::Mode::Normal:
+      send = r.has_value();
+      break;
+    case app::commands::Mode::Single:
+      send = r.has_value() && settings.single_armed;
+      break;
+    }
+
+    if (!send)
+      continue;
+
     uint16_t start = 0;
     if (r.has_value())
       start = *r;
@@ -93,5 +110,9 @@ int main() {
                          WINDOW * 2);
     drivers::uart::write(footer, app::protocol::FOOTER_SIZE);
     bsp::toggle_led();
+    if (settings.mode == app::commands::Mode::Single) {
+      settings.single_armed = false;
+      std::printf("single: captured\n");
+    }
   }
 }
