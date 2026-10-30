@@ -6,10 +6,9 @@
 
 namespace {
 UART_HandleTypeDef huart{};
-uint8_t rx_byte{};
-uint8_t rx_buf[64];
-volatile uint8_t rx_head{};
-volatile uint8_t rx_tail{};
+DMA_HandleTypeDef hdma_rx{};
+uint8_t rx_buf[256];
+uint16_t tail{};
 } // namespace
 
 namespace drivers::uart {
@@ -34,13 +33,26 @@ void init(uint32_t baud_rate) {
   huart.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   huart.Init.OverSampling = UART_OVERSAMPLING_16;
 
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  hdma_rx.Instance = DMA1_Channel6;
+  hdma_rx.Init.Direction = DMA_PERIPH_TO_MEMORY;
+  hdma_rx.Init.PeriphInc = DMA_PINC_DISABLE;
+  hdma_rx.Init.MemInc = DMA_MINC_ENABLE;
+  hdma_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+  hdma_rx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
+  hdma_rx.Init.Mode = DMA_CIRCULAR;
+  hdma_rx.Init.Priority = DMA_PRIORITY_LOW;
+
+  if (HAL_DMA_Init(&hdma_rx) != HAL_OK) {
+    bsp::error_handler();
+  }
+  __HAL_LINKDMA(&huart, hdmarx, hdma_rx);
+
   if (HAL_UART_Init(&huart) != HAL_OK) {
     bsp::error_handler();
   }
-  HAL_NVIC_SetPriority(USART2_IRQn, 3, 0);
-  HAL_NVIC_EnableIRQ(USART2_IRQn);
-
-  if (HAL_UART_Receive_IT(&huart, &rx_byte, 1) != HAL_OK) {
+  if (HAL_UART_Receive_DMA(&huart, rx_buf, sizeof(rx_buf)) != HAL_OK) {
     bsp::error_handler();
   }
 }
@@ -49,28 +61,13 @@ void write(const uint8_t *data, uint16_t length) {
 }
 
 bool read_byte(uint8_t &out) {
-  if (rx_head == rx_tail)
+  uint16_t head = sizeof(rx_buf) - __HAL_DMA_GET_COUNTER(&hdma_rx);
+  if (head == tail) {
     return false;
-  out = rx_buf[rx_tail];
-  rx_tail = (rx_tail + 1) % sizeof(rx_buf);
+  }
+  out = rx_buf[tail];
+  tail = (tail + 1) % sizeof(rx_buf);
   return true;
 }
 
-extern "C" {
-void USART2_IRQHandler() { HAL_UART_IRQHandler(&huart); }
-
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *) {
-  uint8_t new_head = (rx_head + 1) % sizeof(rx_buf);
-  if (new_head != rx_tail) {
-    rx_buf[rx_head] = rx_byte;
-    rx_head = new_head;
-  }
-
-  HAL_UART_Receive_IT(&huart, &rx_byte, 1);
-}
-
-void HAL_UART_ErrorCallback(UART_HandleTypeDef *) {
-  HAL_UART_Receive_IT(&huart, &rx_byte, 1);
-}
-}
 } // namespace drivers::uart

@@ -24,11 +24,16 @@ enum class Result : uint8_t { None, Ok, UnknownCommand, BadValue, TooLong };
 
 inline const char *to_string(Result r) {
   switch (r) {
-  case Result::None:           return "none";
-  case Result::Ok:             return "ok";
-  case Result::UnknownCommand: return "unknown command";
-  case Result::BadValue:       return "bad value";
-  case Result::TooLong:        return "line too long";
+  case Result::None:
+    return "none";
+  case Result::Ok:
+    return "ok";
+  case Result::UnknownCommand:
+    return "unknown command";
+  case Result::BadValue:
+    return "bad value";
+  case Result::TooLong:
+    return "line too long";
   }
   return "?";
 }

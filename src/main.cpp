@@ -11,7 +11,7 @@
 #include <cinttypes>
 #include <cstdio>
 namespace {
-constexpr uint32_t UART_BAUDRATE = 1152000;
+constexpr uint32_t UART_BAUDRATE = 1'500'000;
 constexpr uint16_t CAPTURE_SIZE = 2000;
 constexpr uint16_t WINDOW = 1000;
 constexpr uint8_t PRETRIGGER = 100;
@@ -57,20 +57,20 @@ int main() {
   uint8_t byte;
   while (true) {
 
-      bool settings_changed = false;
-      while (drivers::uart::read_byte(byte)) {
-        const auto res = parser.feed(static_cast<char>(byte));
-        if (res == app::commands::Result::Ok) {
-          settings_changed = true;
-        } else if (res != app::commands::Result::None) {
-          std::printf("cmd error: %s\n", app::commands::to_string(res));
-        }
+    bool settings_changed = false;
+    while (drivers::uart::read_byte(byte)) {
+      const auto res = parser.feed(static_cast<char>(byte));
+      if (res == app::commands::Result::Ok) {
+        settings_changed = true;
+      } else if (res != app::commands::Result::None) {
+        std::printf("cmd error: %s\n", app::commands::to_string(res));
       }
+    }
 
-      if (settings_changed) {
-        settings.sample_rate_hz = adc_timer.set_rate(settings.sample_rate_hz);
-        print_settings(settings);
-      }
+    if (settings_changed) {
+      settings.sample_rate_hz = adc_timer.set_rate(settings.sample_rate_hz);
+      print_settings(settings);
+    }
 
     drivers::adc::start_capture(frame, CAPTURE_SIZE);
     adc_timer.start();

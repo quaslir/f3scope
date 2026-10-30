@@ -10,6 +10,7 @@ public:
   void start();
   void stop();
   [[nodiscard]] uint32_t set_rate(uint32_t target_rate);
+
 private:
   TIM_HandleTypeDef htim_{};
 };
