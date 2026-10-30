@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """f3scope host viewer.
 
-Reads frames from the STM32 over a serial port and plots them live.
+Reads frames from the STM32 over a serial port, plots them live and sends
+settings to the board.
 
 Packet format (all multi-byte fields little-endian):
     0xAA 0x55 | count (u16) | samples[count] (u16 each) | checksum (u16)
@@ -9,12 +10,16 @@ Packet format (all multi-byte fields little-endian):
 
 Text lines the board prints between frames (printf, ASCII, ending in '\\n')
 are shown in the terminal as "[board] ...". ASCII never contains 0xAA, so text
-can never be mistaken for a frame. A line "settings: rate=<N> Hz ..." updates
-the time axis automatically, so --rate is only the starting value.
+can never be mistaken for a frame. A line
+    settings: rate=<hz> Hz level=<0-4095> edge=<rising|falling> mode=<A|N|S>
+updates the time axis and the controls, so the window always shows what the
+board actually uses.
+
+Commands (one per line, sent by the controls or typed in the terminal):
+    RATE <hz>   LEVEL <0-4095>   EDGE R|F   MODE A|N|S
 
 Usage:
-    python scope.py                      # /dev/ttyACM0, 115200 baud, 100 kHz
-    python scope.py --port /dev/ttyACM0 --baud 1500000 --rate 100000
+    python scope.py --port /dev/ttyACM0 --baud 1500000
     python scope.py --text               # no GUI, just print frame stats
 """
 
@@ -34,19 +39,43 @@ ADC_MAX = 4095
 VREF = 3.3
 MAX_TEXT_LINE = 200
 
-RATE_RE = re.compile(rb"rate=(\d+)")
+# must match PRETRIGGER in main.cpp: samples shown before the trigger point
+PRETRIGGER_SAMPLES = 100
+
+RATE_PRESETS = [1_000, 2_000, 5_000, 10_000, 20_000, 50_000,
+                100_000, 200_000, 500_000, 1_000_000]
+
 TEXT_LINE_RE = re.compile(rb"[A-Za-z][ -~]{3,}")
+SETTINGS_RE = re.compile(
+    r"settings: rate=(\d+) Hz level=(\d+) edge=(rising|falling) mode=([ANS])"
+)
 
 
 def print_board_line(line):
     print(f"[board] {line}", flush=True)
 
 
+def counts_to_volts(counts):
+    return counts * VREF / ADC_MAX
+
+
+def volts_to_counts(volts):
+    return int(round(min(max(volts, 0.0), VREF) * ADC_MAX / VREF))
+
+
+def format_rate(hz):
+    if hz >= 1_000_000:
+        return f"{hz / 1_000_000:g} MS/s"
+    if hz >= 1_000:
+        return f"{hz / 1_000:g} kS/s"
+    return f"{hz} S/s"
+
+
 class FrameReader:
     """Reads packets from a byte stream, resynchronising on errors.
 
     Bytes skipped while looking for the sync word are collected into text
-    lines and passed to on_text.
+    lines and passed to on_text. 'settings:' lines also update self.settings.
     """
 
     def __init__(self, ser, rate_hz=100_000, on_text=print_board_line):
@@ -55,6 +84,9 @@ class FrameReader:
         self.frames_bad = 0
         self.rate_hz = rate_hz
         self.on_text = on_text
+        self.settings = None          # dict from the last 'settings:' line
+        self.settings_version = 0     # bumped on every 'settings:' line
+        self.last_message = ""
         self._text = bytearray()
 
     def _read_exact(self, n):
@@ -74,7 +106,7 @@ class FrameReader:
             # real messages start with a letter and are a few chars long;
             # short printable runs inside binary data are ignored
             if TEXT_LINE_RE.fullmatch(line):
-                self._handle_line(line)
+                self._handle_line(line.decode("ascii"))
         elif b == 0x0D:  # '\r'
             pass
         elif 0x20 <= b <= 0x7E and len(self._text) < MAX_TEXT_LINE:
@@ -84,11 +116,19 @@ class FrameReader:
             self._text.clear()
 
     def _handle_line(self, line):
-        m = RATE_RE.search(line)
+        m = SETTINGS_RE.search(line)
         if m:
             self.rate_hz = int(m.group(1))
+            self.settings = {
+                "rate": int(m.group(1)),
+                "level": int(m.group(2)),
+                "edge": m.group(3),
+                "mode": m.group(4),
+            }
+            self.settings_version += 1
+        self.last_message = line
         if self.on_text is not None:
-            self.on_text(line.decode("ascii"))
+            self.on_text(line)
 
     def _find_sync(self):
         prev = None
@@ -133,19 +173,31 @@ class FrameReader:
         return samples
 
 
-def start_command_input(ser):
+class Commander:
+    """Sends command lines to the board. Safe to call from several threads."""
+
+    def __init__(self, ser):
+        self.ser = ser
+        self._lock = threading.Lock()
+
+    def send(self, cmd):
+        cmd = cmd.strip().upper()
+        if not cmd:
+            return
+        try:
+            with self._lock:
+                self.ser.write((cmd + "\n").encode("ascii"))
+            print(f"[pc] {cmd}", flush=True)
+        except (UnicodeEncodeError, serial.SerialException) as e:
+            print(f"[pc] cannot send '{cmd}': {e}", flush=True)
+
+
+def start_command_input(commander):
     """Send lines typed in this terminal to the board (e.g. 'RATE 10000')."""
 
     def loop():
         for line in sys.stdin:
-            cmd = line.strip().upper()
-            if not cmd:
-                continue
-            try:
-                ser.write((cmd + "\n").encode("ascii"))
-                print(f"[pc] {cmd}", flush=True)
-            except (UnicodeEncodeError, serial.SerialException) as e:
-                print(f"[pc] cannot send '{cmd}': {e}", flush=True)
+            commander.send(line)
 
     threading.Thread(target=loop, daemon=True).start()
 
@@ -162,9 +214,9 @@ def run_text(reader):
         )
 
 
-def run_gui(reader):
+def run_gui(reader, commander):
     import pyqtgraph as pg
-    from pyqtgraph.Qt import QtCore
+    from pyqtgraph.Qt import QtCore, QtWidgets
 
     latest = {"samples": None, "rate": reader.rate_hz}
     lock = threading.Lock()
@@ -178,41 +230,214 @@ def run_gui(reader):
                     latest["samples"] = samples
                     latest["rate"] = reader.rate_hz
 
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
+    threading.Thread(target=worker, daemon=True).start()
 
     app = pg.mkQApp("f3scope")
-    win = pg.PlotWidget(title="f3scope")
-    win.setLabel("bottom", "time", units="s")
-    win.setLabel("left", "voltage", units="V")
-    win.setYRange(0, VREF)
-    win.showGrid(x=True, y=True, alpha=0.3)
-    curve = win.plot(pen=pg.mkPen("y", width=2))
-    win.resize(1000, 500)
-    win.show()
+    root = QtWidgets.QWidget()
+    root.setWindowTitle("f3scope")
+    layout = QtWidgets.QHBoxLayout(root)
 
+    # ---- plot ----------------------------------------------------------------
+    plot = pg.PlotWidget()
+    plot.setLabel("bottom", "time", units="s")
+    plot.setLabel("left", "voltage", units="V")
+    plot.setYRange(0, VREF)
+    plot.showGrid(x=True, y=True, alpha=0.3)
+    curve = plot.plot(pen=pg.mkPen("y", width=2))
+
+    level_line = pg.InfiniteLine(
+        pos=counts_to_volts(2048), angle=0, movable=True,
+        bounds=(0, VREF), pen=pg.mkPen("c", width=1, style=QtCore.Qt.PenStyle.DashLine),
+        hoverPen=pg.mkPen("c", width=3),
+    )
+    plot.addItem(level_line)
+    # the label text is set by show_level(), so it always shows the same
+    # value as the slider, whatever moved the line
+    level_tag = pg.InfLineLabel(level_line, text="", position=0.93, color="c",
+                                anchors=[(0.5, 1), (0.5, 1)])
+
+    trig_marker = pg.InfiniteLine(
+        pos=PRETRIGGER_SAMPLES / reader.rate_hz, angle=90, movable=False,
+        pen=pg.mkPen((150, 150, 150), width=1, style=QtCore.Qt.PenStyle.DotLine),
+    )
+    plot.addItem(trig_marker)
+    layout.addWidget(plot, stretch=1)
+
+    # ---- controls ------------------------------------------------------------
+    panel = QtWidgets.QWidget()
+    panel.setFixedWidth(250)
+    controls = QtWidgets.QVBoxLayout(panel)
+
+    # sample rate
+    rate_box = QtWidgets.QGroupBox("Sample rate")
+    rate_layout = QtWidgets.QVBoxLayout(rate_box)
+    rate_combo = QtWidgets.QComboBox()
+    for hz in RATE_PRESETS:
+        rate_combo.addItem(format_rate(hz), hz)
+    rate_combo.setCurrentIndex(RATE_PRESETS.index(100_000))
+    rate_actual = QtWidgets.QLabel("board: ?")
+    rate_layout.addWidget(rate_combo)
+    rate_layout.addWidget(rate_actual)
+    controls.addWidget(rate_box)
+
+    def on_rate(index):
+        commander.send(f"RATE {rate_combo.itemData(index)}")
+
+    rate_combo.activated.connect(on_rate)
+
+    # trigger level
+    level_box = QtWidgets.QGroupBox("Trigger level")
+    level_layout = QtWidgets.QVBoxLayout(level_box)
+    level_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+    level_slider.setRange(0, ADC_MAX)
+    level_slider.setValue(2048)
+    level_label = QtWidgets.QLabel()
+    level_layout.addWidget(level_slider)
+    level_layout.addWidget(level_label)
+    level_hint = QtWidgets.QLabel("or drag the dashed line on the plot")
+    level_hint.setStyleSheet("color: gray")
+    level_layout.addWidget(level_hint)
+    controls.addWidget(level_box)
+
+    def show_level(counts):
+        volts = counts_to_volts(counts)
+        level_label.setText(f"{counts}  ({volts:.3f} V)")
+        level_tag.format = f"trigger {counts}  {volts:.2f} V"   # no {value}: fixed text
+        level_tag.setText(level_tag.format)
+
+    show_level(2048)
+
+    def on_slider_moved(counts):
+        show_level(counts)
+        # no blockSignals here: the line's own label listens to the same
+        # signal; on_line_moved only updates the slider and never sends
+        level_line.setValue(counts_to_volts(counts))
+
+    def on_slider_value(counts):
+        on_slider_moved(counts)
+        if not level_slider.isSliderDown():   # keyboard / click on the track
+            commander.send(f"LEVEL {counts}")
+
+    level_slider.valueChanged.connect(on_slider_value)
+    level_slider.sliderReleased.connect(
+        lambda: commander.send(f"LEVEL {level_slider.value()}"))
+
+    def on_line_moved(line):
+        counts = volts_to_counts(line.value())
+        show_level(counts)
+        level_slider.blockSignals(True)
+        level_slider.setValue(counts)
+        level_slider.blockSignals(False)
+
+    level_line.sigPositionChanged.connect(on_line_moved)
+    level_line.sigPositionChangeFinished.connect(
+        lambda line: commander.send(f"LEVEL {volts_to_counts(line.value())}"))
+
+    # edge
+    edge_box = QtWidgets.QGroupBox("Edge")
+    edge_layout = QtWidgets.QHBoxLayout(edge_box)
+    edge_rising = QtWidgets.QRadioButton("Rising")
+    edge_falling = QtWidgets.QRadioButton("Falling")
+    edge_rising.setChecked(True)
+    edge_group = QtWidgets.QButtonGroup(edge_box)
+    edge_group.addButton(edge_rising)
+    edge_group.addButton(edge_falling)
+    edge_layout.addWidget(edge_rising)
+    edge_layout.addWidget(edge_falling)
+    controls.addWidget(edge_box)
+
+    edge_rising.clicked.connect(lambda: commander.send("EDGE R"))
+    edge_falling.clicked.connect(lambda: commander.send("EDGE F"))
+
+    # mode
+    mode_box = QtWidgets.QGroupBox("Mode")
+    mode_layout = QtWidgets.QHBoxLayout(mode_box)
+    mode_buttons = {}
+    mode_group = QtWidgets.QButtonGroup(mode_box)
+    for code, name in (("A", "Auto"), ("N", "Normal"), ("S", "Single")):
+        btn = QtWidgets.QPushButton(name)
+        btn.setCheckable(True)
+        mode_group.addButton(btn)
+        mode_layout.addWidget(btn)
+        mode_buttons[code] = btn
+        # Single is sent on every click: each click captures one more frame
+        btn.clicked.connect(lambda _checked, c=code: commander.send(f"MODE {c}"))
+    mode_buttons["A"].setChecked(True)
+    single_hint = QtWidgets.QLabel("click Single again for the next frame")
+    single_hint.setStyleSheet("color: gray")
+    single_hint.setWordWrap(True)
+    controls.addWidget(mode_box)
+    controls.addWidget(single_hint)
+
+    # status
+    controls.addStretch(1)
+    status = QtWidgets.QLabel()
+    status.setWordWrap(True)
+    message = QtWidgets.QLabel()
+    message.setWordWrap(True)
+    message.setStyleSheet("color: gray")
+    controls.addWidget(status)
+    controls.addWidget(message)
+
+    layout.addWidget(panel)
+    root.resize(1200, 550)
+    root.show()
+
+    # ---- apply what the board reports ---------------------------------------
+    seen = {"version": 0}
+
+    def sync_from_board():
+        if reader.settings_version == seen["version"] or reader.settings is None:
+            return
+        seen["version"] = reader.settings_version
+        s = dict(reader.settings)
+
+        rate_actual.setText(f"board: {s['rate']:,} Hz".replace(",", " "))
+        # a rate typed in the terminal may not be a preset: show it as blank
+        rate_combo.setCurrentIndex(
+            RATE_PRESETS.index(s["rate"]) if s["rate"] in RATE_PRESETS else -1)
+
+        # don't fight the user while a drag is in progress
+        if not level_slider.isSliderDown() and not level_line.moving:
+            level_slider.blockSignals(True)
+            level_slider.setValue(s["level"])
+            level_slider.blockSignals(False)
+            level_line.setValue(counts_to_volts(s["level"]))
+            show_level(s["level"])
+
+        (edge_rising if s["edge"] == "rising" else edge_falling).setChecked(True)
+        mode_buttons[s["mode"]].setChecked(True)
+
+    # ---- redraw --------------------------------------------------------------
     fps = {"t": time.monotonic(), "n": 0, "value": 0.0}
 
     def update():
+        sync_from_board()
+        message.setText(reader.last_message)
+
         with lock:
             samples = latest["samples"]
             rate_hz = latest["rate"]
             latest["samples"] = None
-        if samples is None:
-            return
-        t = np.arange(len(samples)) / rate_hz
-        v = samples.astype(np.float32) * (VREF / ADC_MAX)
-        curve.setData(t, v)
 
-        fps["n"] += 1
         now = time.monotonic()
         if now - fps["t"] >= 1.0:
             fps["value"] = fps["n"] / (now - fps["t"])
             fps["t"], fps["n"] = now, 0
-        win.setTitle(
-            f"f3scope  |  {rate_hz / 1000:g} kS/s  |  {fps['value']:.1f} fps  |  "
-            f"min {v.min():.3f} V  max {v.max():.3f} V  Vpp {v.max() - v.min():.3f} V  |  "
-            f"ok {reader.frames_ok}  bad {reader.frames_bad}"
+        status.setText(
+            f"{fps['value']:.1f} fps    ok {reader.frames_ok}    bad {reader.frames_bad}"
+        )
+
+        if samples is None:
+            return
+        fps["n"] += 1
+        t = np.arange(len(samples)) / rate_hz
+        v = counts_to_volts(samples.astype(np.float32))
+        curve.setData(t, v)
+        trig_marker.setValue(PRETRIGGER_SAMPLES / rate_hz)
+        plot.setTitle(
+            f"{format_rate(rate_hz)}    min {v.min():.3f} V    max {v.max():.3f} V    "
+            f"Vpp {v.max() - v.min():.3f} V"
         )
 
     timer = QtCore.QTimer()
@@ -228,7 +453,7 @@ def run_gui(reader):
 def main():
     p = argparse.ArgumentParser(description="f3scope host viewer")
     p.add_argument("--port", default="/dev/ttyACM0")
-    p.add_argument("--baud", type=int, default=115200)
+    p.add_argument("--baud", type=int, default=1_500_000)
     p.add_argument("--rate", type=int, default=100_000,
                    help="starting sample rate in Hz (updated by 'settings:' lines from the board)")
     p.add_argument("--text", action="store_true", help="print stats instead of plotting")
@@ -241,14 +466,15 @@ def main():
 
     ser.reset_input_buffer()
     reader = FrameReader(ser, rate_hz=args.rate)
-    start_command_input(ser)
-    print("type commands here: RATE <hz> | LEVEL <0-4095> | EDGE R|F | MODE A|N|S", flush=True)
+    commander = Commander(ser)
+    start_command_input(commander)
+    print("commands: RATE <hz> | LEVEL <0-4095> | EDGE R|F | MODE A|N|S", flush=True)
 
     try:
         if args.text:
             run_text(reader)
         else:
-            run_gui(reader)
+            run_gui(reader, commander)
     except KeyboardInterrupt:
         pass
     finally:
