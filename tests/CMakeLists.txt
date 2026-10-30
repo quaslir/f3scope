@@ -45,6 +45,7 @@ add_library(app STATIC
     ${SRC_DIR}/app/protocol.cpp
     ${SRC_DIR}/app/wavegen.cpp
     ${SRC_DIR}/app/timer_math.cpp
+    ${SRC_DIR}/app/measure.cpp
 )
 target_include_directories(app PUBLIC ${SRC_DIR})   # "app/trigger.hpp"
 

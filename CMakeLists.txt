@@ -61,6 +61,8 @@ add_executable(firmware
     src/app/protocol.cpp
     src/app/trigger.cpp
     src/app/commands.cpp
+    src/app/timer_math.cpp
+    src/app/measure.cpp
 )
 target_link_libraries(firmware PRIVATE hal)
 
