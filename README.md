@@ -137,11 +137,10 @@ A few problems found and fixed along the way:
 - [x] DAC test signal (TIM7 + DMA circular)
 - [x] Binary streaming + live PC plot
 - [x] Software trigger (rising/falling, hysteresis, pre-trigger)
-- [ ] Commands from PC: sample rate, trigger level/edge, Auto/Normal/Single *(in progress)*
-- [ ] Measurements: frequency, period, Vpp, Vrms, duty cycle
-- [ ] Unit tests for `app/` on the host + GitHub Actions CI
+- [x] Commands from PC: sample rate, trigger level/edge, Auto/Normal/Single *(in progress)*
+- [x] Measurements: frequency, period, Vpp, Vrms, duty cycle
+- [x] Unit tests for `app/` on the host + GitHub Actions CI
 - [ ] Continuous capture with DMA double buffering
-- [ ] Native USB (CDC) for higher throughput
 - [ ] Analog front end with the on-chip OPAMP, second channel, FFT
 
 ## License
