@@ -1,4 +1,5 @@
 # f3scope
+![CI](https://github.com/<user>/<repo>/actions/workflows/ci.yml/badge.svg)
 
 A small oscilloscope built on an **STM32F303RE** (NUCLEO-F303RE). The MCU samples a signal with its 12-bit ADC (timer-triggered, DMA to RAM), finds a trigger point, and streams frames to a PC where they are plotted live.
 
