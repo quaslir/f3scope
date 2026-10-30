@@ -8,9 +8,10 @@
 #include "drivers/dac.hpp"
 #include "drivers/tim.hpp"
 #include "drivers/uart.hpp"
+#include <cinttypes>
 #include <cstdio>
 namespace {
-constexpr uint32_t UART_BAUDRATE = 1500000;
+constexpr uint32_t UART_BAUDRATE = 1152000;
 constexpr uint16_t CAPTURE_SIZE = 2000;
 constexpr uint16_t WINDOW = 1000;
 constexpr uint8_t PRETRIGGER = 100;
@@ -24,7 +25,15 @@ uint16_t sine_table[SINE_POINTS];
 uint8_t header[app::protocol::HEADER_SIZE];
 uint8_t footer[app::protocol::FOOTER_SIZE];
 
+const char *edge_name(app::trigger::Edge e) {
+  return e == app::trigger::Edge::Rising ? "rising" : "falling";
+}
 
+void print_settings(const app::commands::Settings &s) {
+  std::printf("settings: rate=%" PRIu32 " Hz level=%u edge=%s mode=%c\n",
+              s.sample_rate_hz, static_cast<unsigned>(s.level),
+              edge_name(s.edge), static_cast<char>(s.mode));
+}
 } // namespace
 
 int main() {
@@ -43,7 +52,8 @@ int main() {
 
   drivers::dac::start_wave(sine_table, SINE_POINTS);
   dac_timer.start();
-
+  std::printf("f3scope ready\n");
+  print_settings(settings);
   uint8_t byte;
   while (true) {
 
@@ -57,8 +67,9 @@ int main() {
         }
       }
 
-      if(settings_changed) {
-         settings.sample_rate_hz =  adc_timer.set_rate(settings.sample_rate_hz);
+      if (settings_changed) {
+        settings.sample_rate_hz = adc_timer.set_rate(settings.sample_rate_hz);
+        print_settings(settings);
       }
 
     drivers::adc::start_capture(frame, CAPTURE_SIZE);
