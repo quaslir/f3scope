@@ -2,7 +2,7 @@
 #include "bsp/board.hpp"
 #include "bsp/bsp.hpp"
 #include "stm32f3xx_hal.h"
-
+#include "app/timer_match.hpp"
 namespace drivers {
 constexpr uint32_t TIMER_CLOCK_HZ = 72'000'000;
 BasicTimer::BasicTimer(TIM_TypeDef *instance) { htim_.Instance = instance; }
@@ -34,21 +34,16 @@ void BasicTimer::init(uint32_t sample_rate_hz) {
   [[maybe_unused]] auto actual_rate = set_rate(sample_rate_hz);
 }
 uint32_t BasicTimer::set_rate(uint32_t target_rate) {
-  if (target_rate == 0) {
-    bsp::error_handler();
-  }
-  auto ticks = TIMER_CLOCK_HZ / target_rate;
-  if (ticks == 0) {
-    bsp::error_handler();
-  }
-  auto psc = (ticks - 1) / 65536;
-  auto arr = ticks / (psc + 1) - 1;
-  __HAL_TIM_SET_PRESCALER(&htim_, psc);
-  __HAL_TIM_SET_AUTORELOAD(&htim_, arr);
+    auto calculations = app::timer_math::calculate(TIMER_CLOCK_HZ,target_rate);
+    if(!calculations) {
+        bsp::error_handler();
+    }
+  __HAL_TIM_SET_PRESCALER(&htim_, calculations->psc);
+  __HAL_TIM_SET_AUTORELOAD(&htim_, calculations->arr);
   if (HAL_TIM_GenerateEvent(&htim_, TIM_EVENTSOURCE_UPDATE) != HAL_OK) {
     bsp::error_handler();
   }
-  return TIMER_CLOCK_HZ / ((psc + 1) * (arr + 1));
+return calculations->sample_rate;
 }
 void BasicTimer::start() { HAL_TIM_Base_Start(&htim_); }
 

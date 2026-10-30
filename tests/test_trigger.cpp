@@ -23,7 +23,6 @@ std::optional<uint16_t> run(const std::array<uint16_t, N>& data, Edge edge,
     return find(data.data(), static_cast<uint16_t>(data.size()), level, hyst, edge);
 }
 
-// 2048 + 1000 * sin(2*pi*i/period), rounded like the ADC would see it
 std::vector<uint16_t> sine(std::size_t n, std::size_t period) {
     std::vector<uint16_t> v(n);
     const double pi = std::acos(-1.0);
