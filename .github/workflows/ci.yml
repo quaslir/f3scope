@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CLANG_FORMAT_VERSION: "21.*"
+
+jobs:
+  tests:
+    name: Unit tests (host)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        if: hashFiles('tests/CMakeLists.txt') != ''
+        run: cmake -S tests -B build-tests -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        if: hashFiles('tests/CMakeLists.txt') != ''
+        run: cmake --build build-tests --parallel
+
+      - name: Run
+        if: hashFiles('tests/CMakeLists.txt') != ''
+        run: ctest --test-dir build-tests --output-on-failure
+
+  firmware:
+    name: Firmware (${{ matrix.build_type }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install ARM toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-none-eabi binutils-arm-none-eabi \
+            libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
+          arm-none-eabi-gcc --version
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3scope-firmware-${{ matrix.build_type }}
+          path: |
+            build/firmware.elf
+            build/firmware.hex
+            build/firmware.bin
+            build/firmware.map
+          if-no-files-found: error
+
+  format:
+    name: clang-format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install clang-format
+        run: |
+          pip install "clang-format==${CLANG_FORMAT_VERSION}"
+          clang-format --version
+
+      - name: Check formatting
+        run: |
+          dirs=$(ls -d src tests 2>/dev/null || true)   # tests/ appears in 5c.1
+          find $dirs -type f \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) \
+               ! -name 'stm32f3xx_hal_conf.h' -print0 \
+            | xargs -0 --no-run-if-empty clang-format --dry-run --Werror --style=file
