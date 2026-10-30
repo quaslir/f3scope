@@ -1,4 +1,5 @@
 #include "app/commands.hpp"
+#include "app/measure.hpp"
 #include "app/protocol.hpp"
 #include "app/trigger.hpp"
 #include "app/wavegen.hpp"
@@ -81,6 +82,7 @@ int main() {
     drivers::adc::stop_capture();
     auto r = app::trigger::find(frame + PRETRIGGER, CAPTURE_SIZE - WINDOW + 1,
                                 settings.level, TRIG_HYST, settings.edge);
+
     bool send = false;
 
     switch (settings.mode) {
@@ -97,7 +99,8 @@ int main() {
 
     if (!send)
       continue;
-
+    auto meas =
+        app::measure::measure(frame, CAPTURE_SIZE, settings.sample_rate_hz);
     uint16_t start = 0;
     if (r.has_value())
       start = *r;
@@ -109,6 +112,14 @@ int main() {
     drivers::uart::write(reinterpret_cast<const uint8_t *>(frame + start),
                          WINDOW * 2);
     drivers::uart::write(footer, app::protocol::FOOTER_SIZE);
+
+    std::printf(
+        "meas: min=%u max=%u mean=%u rms=%u periodic=%d freq_mhz=%" PRIu32
+        " duty=%u\n",
+        static_cast<unsigned>(meas.min), static_cast<unsigned>(meas.max),
+        static_cast<unsigned>(meas.mean), static_cast<unsigned>(meas.rms),
+        meas.periodic ? 1 : 0, meas.freq_mhz,
+        static_cast<unsigned>(meas.duty_permille));
     bsp::toggle_led();
     if (settings.mode == app::commands::Mode::Single) {
       settings.single_armed = false;

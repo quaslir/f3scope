@@ -15,6 +15,10 @@ can never be mistaken for a frame. A line
 updates the time axis and the controls, so the window always shows what the
 board actually uses.
 
+After every frame the board may send
+    meas: min=<n> max=<n> mean=<n> rms=<n> periodic=<0|1> freq_mhz=<n> duty=<permille>
+(ADC counts, millihertz, permille); it is shown in the Measurements panel.
+
 Commands (one per line, sent by the controls or typed in the terminal):
     RATE <hz>   LEVEL <0-4095>   EDGE R|F   MODE A|N|S
 
@@ -49,6 +53,11 @@ TEXT_LINE_RE = re.compile(rb"[A-Za-z][ -~]{3,}")
 SETTINGS_RE = re.compile(
     r"settings: rate=(\d+) Hz level=(\d+) edge=(rising|falling) mode=([ANS])"
 )
+# sent by the board after every frame (ADC counts, mHz, permille)
+MEAS_RE = re.compile(
+    r"meas: min=(\d+) max=(\d+) mean=(\d+) rms=(\d+) "
+    r"periodic=([01]) freq_mhz=(\d+) duty=(\d+)"
+)
 
 
 def print_board_line(line):
@@ -61,6 +70,22 @@ def counts_to_volts(counts):
 
 def volts_to_counts(volts):
     return int(round(min(max(volts, 0.0), VREF) * ADC_MAX / VREF))
+
+
+def format_freq(hz):
+    if hz >= 1_000_000:
+        return f"{hz / 1_000_000:.4f} MHz"
+    if hz >= 1_000:
+        return f"{hz / 1_000:.3f} kHz"
+    return f"{hz:.3f} Hz"
+
+
+def format_time(seconds):
+    if seconds >= 1:
+        return f"{seconds:.4f} s"
+    if seconds >= 1e-3:
+        return f"{seconds * 1e3:.4f} ms"
+    return f"{seconds * 1e6:.3f} \u00b5s"
 
 
 def format_rate(hz):
@@ -86,6 +111,7 @@ class FrameReader:
         self.on_text = on_text
         self.settings = None          # dict from the last 'settings:' line
         self.settings_version = 0     # bumped on every 'settings:' line
+        self.measurements = None      # dict from the last 'meas:' line
         self.last_message = ""
         self._text = bytearray()
 
@@ -116,6 +142,20 @@ class FrameReader:
             self._text.clear()
 
     def _handle_line(self, line):
+        m = MEAS_RE.fullmatch(line)
+        if m:
+            # comes with every frame: keep it, but don't flood the terminal
+            self.measurements = {
+                "min": int(m.group(1)),
+                "max": int(m.group(2)),
+                "mean": int(m.group(3)),
+                "rms": int(m.group(4)),
+                "periodic": m.group(5) == "1",
+                "freq_hz": int(m.group(6)) / 1000.0,
+                "duty": int(m.group(7)) / 10.0,
+            }
+            return
+
         m = SETTINGS_RE.search(line)
         if m:
             self.rate_hz = int(m.group(1))
@@ -208,9 +248,13 @@ def run_text(reader):
         if samples is None:
             print(f"(no valid frame)  ok={reader.frames_ok} bad={reader.frames_bad}")
             continue
+        meas = reader.measurements
+        freq = ""
+        if meas and meas["periodic"]:
+            freq = f"  f={format_freq(meas['freq_hz'])} duty={meas['duty']:.1f}%"
         print(
             f"frame ok: count={len(samples)} min={samples.min()} max={samples.max()}"
-            f"  rate={reader.rate_hz} Hz  ok={reader.frames_ok} bad={reader.frames_bad}"
+            f"  rate={reader.rate_hz} Hz{freq}  ok={reader.frames_ok} bad={reader.frames_bad}"
         )
 
 
@@ -369,6 +413,40 @@ def run_gui(reader, commander):
     controls.addWidget(mode_box)
     controls.addWidget(single_hint)
 
+    # measurements (computed on the board over the whole capture)
+    meas_box = QtWidgets.QGroupBox("Measurements")
+    meas_grid = QtWidgets.QGridLayout(meas_box)
+    meas_labels = {}
+    for row, (key, name) in enumerate((
+            ("freq", "Freq"), ("period", "Period"), ("duty", "Duty"),
+            ("vpp", "Vpp"), ("vmin", "Vmin"), ("vmax", "Vmax"),
+            ("vavg", "Vavg"), ("vrms", "Vrms"))):
+        meas_grid.addWidget(QtWidgets.QLabel(name), row, 0)
+        value = QtWidgets.QLabel("\u2014")
+        value.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        value.setStyleSheet("font-family: monospace")
+        meas_grid.addWidget(value, row, 1)
+        meas_labels[key] = value
+    controls.addWidget(meas_box)
+
+    def show_measurements():
+        m = reader.measurements
+        if m is None:
+            return
+        v = counts_to_volts
+        meas_labels["vmin"].setText(f"{v(m['min']):.3f} V")
+        meas_labels["vmax"].setText(f"{v(m['max']):.3f} V")
+        meas_labels["vpp"].setText(f"{v(m['max'] - m['min']):.3f} V")
+        meas_labels["vavg"].setText(f"{v(m['mean']):.3f} V")
+        meas_labels["vrms"].setText(f"{v(m['rms']):.3f} V")
+        if m["periodic"] and m["freq_hz"] > 0:
+            meas_labels["freq"].setText(format_freq(m["freq_hz"]))
+            meas_labels["period"].setText(format_time(1.0 / m["freq_hz"]))
+            meas_labels["duty"].setText(f"{m['duty']:.1f} %")
+        else:
+            for key in ("freq", "period", "duty"):
+                meas_labels[key].setText("\u2014")
+
     # status
     controls.addStretch(1)
     status = QtWidgets.QLabel()
@@ -413,6 +491,7 @@ def run_gui(reader, commander):
 
     def update():
         sync_from_board()
+        show_measurements()
         message.setText(reader.last_message)
 
         with lock:
