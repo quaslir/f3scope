@@ -1,3 +1,4 @@
+#include "app/commands.hpp"
 #include "app/protocol.hpp"
 #include "app/trigger.hpp"
 #include "app/wavegen.hpp"
@@ -7,12 +8,12 @@
 #include "drivers/dac.hpp"
 #include "drivers/tim.hpp"
 #include "drivers/uart.hpp"
+#include <cstdio>
 namespace {
 constexpr uint32_t UART_BAUDRATE = 1500000;
 constexpr uint16_t CAPTURE_SIZE = 2000;
 constexpr uint16_t WINDOW = 1000;
 constexpr uint8_t PRETRIGGER = 100;
-constexpr uint16_t TRIG_LEVEL = 2048;
 constexpr uint8_t TRIG_HYST = 50;
 constexpr uint8_t SINE_POINTS = 100;
 drivers::BasicTimer adc_timer{bsp::board::ADC_TIMER};
@@ -23,22 +24,43 @@ uint16_t sine_table[SINE_POINTS];
 uint8_t header[app::protocol::HEADER_SIZE];
 uint8_t footer[app::protocol::FOOTER_SIZE];
 
+
 } // namespace
 
 int main() {
+
+  app::commands::Settings settings;
+  app::commands::Parser parser{settings};
   bsp::init();
   drivers::uart::init(UART_BAUDRATE);
   drivers::adc::init();
   drivers::dac::init();
 
-  adc_timer.init(100'000);
+  adc_timer.init(settings.sample_rate_hz);
   dac_timer.init(100'000);
 
   app::wavegen::fill_sine(sine_table, SINE_POINTS, 2048, 1700);
 
   drivers::dac::start_wave(sine_table, SINE_POINTS);
   dac_timer.start();
+
+  uint8_t byte;
   while (true) {
+
+      bool settings_changed = false;
+      while (drivers::uart::read_byte(byte)) {
+        const auto res = parser.feed(static_cast<char>(byte));
+        if (res == app::commands::Result::Ok) {
+          settings_changed = true;
+        } else if (res != app::commands::Result::None) {
+          std::printf("cmd error: %s\n", app::commands::to_string(res));
+        }
+      }
+
+      if(settings_changed) {
+         settings.sample_rate_hz =  adc_timer.set_rate(settings.sample_rate_hz);
+      }
+
     drivers::adc::start_capture(frame, CAPTURE_SIZE);
     adc_timer.start();
     while (!drivers::adc::capture_done())
@@ -46,9 +68,8 @@ int main() {
 
     adc_timer.stop();
     drivers::adc::stop_capture();
-    auto r =
-        app::trigger::find(frame + PRETRIGGER, CAPTURE_SIZE - WINDOW + 1,
-                           TRIG_LEVEL, TRIG_HYST, app::trigger::Edge::Rising);
+    auto r = app::trigger::find(frame + PRETRIGGER, CAPTURE_SIZE - WINDOW + 1,
+                                settings.level, TRIG_HYST, settings.edge);
     uint16_t start = 0;
     if (r.has_value())
       start = *r;

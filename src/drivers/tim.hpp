@@ -9,7 +9,7 @@ public:
   void init(uint32_t sample_rate_hz);
   void start();
   void stop();
-
+  [[nodiscard]] uint32_t set_rate(uint32_t target_rate);
 private:
   TIM_HandleTypeDef htim_{};
 };

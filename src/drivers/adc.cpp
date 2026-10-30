@@ -92,6 +92,7 @@ void stop_capture() {
     bsp::error_handler();
   }
 }
+
 extern "C" {
 void DMA1_Channel1_IRQHandler() { HAL_DMA_IRQHandler(&hdma); }
 
