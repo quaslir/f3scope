@@ -2,7 +2,5 @@
 #include "stm32f3xx_hal.h"
 
 extern "C" {
-    void SysTick_Handler() {
-        HAL_IncTick();
-    }
+void SysTick_Handler() { HAL_IncTick(); }
 }

@@ -89,3 +89,31 @@ add_custom_target(flash
     DEPENDS firmware
     USES_TERMINAL
 )
+
+find_program(CLANG_FORMAT_EXE NAMES clang-format)
+
+if(CLANG_FORMAT_EXE)
+    file(GLOB_RECURSE FORMAT_SOURCES CONFIGURE_DEPENDS
+        ${CMAKE_SOURCE_DIR}/src/*.cpp
+        ${CMAKE_SOURCE_DIR}/src/*.hpp
+        ${CMAKE_SOURCE_DIR}/src/*.h
+    )
+    # ST template, keep it as close to the original as possible
+    list(FILTER FORMAT_SOURCES EXCLUDE REGEX ".*/stm32f3xx_hal_conf\\.h$")
+
+    add_custom_target(format
+        COMMAND ${CLANG_FORMAT_EXE} -i --style=file ${FORMAT_SOURCES}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "clang-format: formatting sources"
+        VERBATIM
+    )
+
+    add_custom_target(format-check
+        COMMAND ${CLANG_FORMAT_EXE} --dry-run --Werror --style=file ${FORMAT_SOURCES}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "clang-format: checking formatting"
+        VERBATIM
+    )
+else()
+    message(STATUS "clang-format not found, 'format' targets are disabled")
+endif()
