@@ -22,12 +22,18 @@ After every frame the board may send
 Commands (one per line, sent by the controls or typed in the terminal):
     RATE <hz>   LEVEL <0-4095>   EDGE R|F   MODE A|N|S
 
+The serial port is reopened automatically if it disappears (USB unplugged,
+board power-cycled), and the Reconnect button forces it. When the board
+restarts it prints "f3scope ready"; the viewer then sends the previous
+settings again so a reset does not lose them.
+
 Usage:
     python scope.py --port /dev/ttyACM0 --baud 1500000
     python scope.py --text               # no GUI, just print frame stats
 """
 
 import argparse
+import os
 import re
 import sys
 import threading
@@ -96,6 +102,92 @@ def format_rate(hz):
     return f"{hz} S/s"
 
 
+class SerialLink:
+    """Serial port that survives unplugging.
+
+    read() never raises: while the port is missing it waits and retries, and
+    returns b"" like a timeout. Only the reader thread calls read(); write()
+    may be called from any thread.
+    """
+
+    RETRY_S = 1.0
+
+    def __init__(self, port, baud):
+        self.port = port
+        self.baud = baud
+        self.short_name = os.path.basename(port)   # by-id paths are long
+        self.status = "connecting"
+        self.connected = False
+        self.connections = 0          # bumped on every successful open
+        self._ser = None
+        self._lock = threading.Lock()
+        self._next_try = 0.0
+        self._reconnect = threading.Event()
+
+    def reconnect(self):
+        """Ask the reader thread to close and reopen the port."""
+        self._reconnect.set()
+
+    def _close(self, status):
+        with self._lock:
+            if self._ser is not None:
+                try:
+                    self._ser.close()
+                except (serial.SerialException, OSError):
+                    pass
+            self._ser = None
+            self.connected = False
+            self.status = status
+
+    def _open(self):
+        now = time.monotonic()
+        if now < self._next_try:
+            return
+        self._next_try = now + self.RETRY_S
+        try:
+            ser = serial.Serial(self.port, self.baud, timeout=0.2)
+            ser.reset_input_buffer()
+        except (serial.SerialException, OSError, ValueError):
+            self.status = f"waiting for {self.short_name}"
+            return
+        with self._lock:
+            self._ser = ser
+            self.connected = True
+            self.connections += 1
+            self.status = f"connected: {self.short_name}"
+        print(f"[pc] connected to {self.port}", flush=True)
+
+    def read(self, n):
+        if self._reconnect.is_set():
+            self._reconnect.clear()
+            self._close("reconnecting")
+            self._next_try = 0.0
+        if self._ser is None:
+            self._open()
+            if self._ser is None:
+                time.sleep(0.2)
+                return b""
+        try:
+            return self._ser.read(n)
+        except (serial.SerialException, OSError, TypeError, AttributeError):
+            # TypeError/AttributeError: pyserial internals after a hot unplug
+            print(f"[pc] lost {self.port}, waiting for it to come back", flush=True)
+            self._close(f"lost {self.short_name}")
+            return b""
+
+    def write(self, data):
+        with self._lock:
+            if self._ser is None:
+                raise serial.SerialException("not connected")
+            try:
+                self._ser.write(data)
+            except (serial.SerialException, OSError) as e:
+                raise serial.SerialException(str(e)) from e
+
+    def close(self):
+        self._close("closed")
+
+
 class FrameReader:
     """Reads packets from a byte stream, resynchronising on errors.
 
@@ -113,7 +205,17 @@ class FrameReader:
         self.settings_version = 0     # bumped on every 'settings:' line
         self.measurements = None      # dict from the last 'meas:' line
         self.last_message = ""
+        # set when the board prints "f3scope ready" (it was reset); holds the
+        # settings it had before, so the viewer can send them again
+        self.restart_pending = False
+        self.settings_before_restart = None
         self._text = bytearray()
+
+    def reset_stats(self):
+        self.frames_ok = 0
+        self.frames_bad = 0
+        self.measurements = None
+        self._text.clear()
 
     def _read_exact(self, n):
         data = bytearray()
@@ -155,6 +257,11 @@ class FrameReader:
                 "duty": int(m.group(7)) / 10.0,
             }
             return
+
+        if line.startswith("f3scope ready"):
+            if self.settings is not None:
+                self.settings_before_restart = dict(self.settings)
+                self.restart_pending = True
 
         m = SETTINGS_RE.search(line)
         if m:
@@ -242,11 +349,12 @@ def start_command_input(commander):
     threading.Thread(target=loop, daemon=True).start()
 
 
-def run_text(reader):
+def run_text(reader, link):
     while True:
         samples = reader.read_frame()
         if samples is None:
-            print(f"(no valid frame)  ok={reader.frames_ok} bad={reader.frames_bad}")
+            if link.connected:
+                print(f"(no valid frame)  ok={reader.frames_ok} bad={reader.frames_bad}")
             continue
         meas = reader.measurements
         freq = ""
@@ -258,7 +366,7 @@ def run_text(reader):
         )
 
 
-def run_gui(reader, commander):
+def run_gui(reader, commander, link):
     import pyqtgraph as pg
     from pyqtgraph.Qt import QtCore, QtWidgets
 
@@ -447,6 +555,25 @@ def run_gui(reader, commander):
             for key in ("freq", "period", "duty"):
                 meas_labels[key].setText("\u2014")
 
+    # connection
+    conn_box = QtWidgets.QGroupBox("Connection")
+    conn_layout = QtWidgets.QVBoxLayout(conn_box)
+    conn_label = QtWidgets.QLabel()
+    conn_label.setWordWrap(True)
+    conn_buttons = QtWidgets.QHBoxLayout()
+    reconnect_btn = QtWidgets.QPushButton("Reconnect")
+    reconnect_btn.setToolTip("Close and reopen the serial port, clear counters (Ctrl+R)")
+    clear_btn = QtWidgets.QPushButton("Clear")
+    clear_btn.setToolTip("Clear the plot, measurements and frame counters")
+    conn_buttons.addWidget(reconnect_btn)
+    conn_buttons.addWidget(clear_btn)
+    restore_box = QtWidgets.QCheckBox("Restore settings after board reset")
+    restore_box.setChecked(True)
+    conn_layout.addWidget(conn_label)
+    conn_layout.addLayout(conn_buttons)
+    conn_layout.addWidget(restore_box)
+    controls.addWidget(conn_box)
+
     # status
     controls.addStretch(1)
     status = QtWidgets.QLabel()
@@ -486,10 +613,51 @@ def run_gui(reader, commander):
         (edge_rising if s["edge"] == "rising" else edge_falling).setChecked(True)
         mode_buttons[s["mode"]].setChecked(True)
 
+    # ---- connection ------------------------------------------------------------
+    def clear_view():
+        reader.reset_stats()
+        with lock:
+            latest["samples"] = None
+        curve.setData([], [])
+        plot.setTitle("")
+        for value in meas_labels.values():
+            value.setText("\u2014")
+
+    def on_reconnect():
+        print("[pc] reconnecting...", flush=True)
+        clear_view()
+        link.reconnect()
+
+    reconnect_btn.clicked.connect(on_reconnect)
+    clear_btn.clicked.connect(clear_view)
+    shortcut = pg.QtGui.QShortcut(pg.QtGui.QKeySequence("Ctrl+R"), root)
+    shortcut.activated.connect(on_reconnect)
+
+    def show_connection():
+        ok = link.connected
+        conn_label.setText(link.status)
+        conn_label.setStyleSheet("color: #2a2" if ok else "color: #d33; font-weight: bold")
+
+    def restore_after_restart():
+        if not reader.restart_pending:
+            return
+        reader.restart_pending = False
+        old = reader.settings_before_restart
+        if not restore_box.isChecked() or old is None:
+            return
+        print("[pc] board was reset, sending previous settings", flush=True)
+        commander.send(f"RATE {old['rate']}")
+        commander.send(f"LEVEL {old['level']}")
+        commander.send("EDGE " + ("R" if old["edge"] == "rising" else "F"))
+        if old["mode"] != "S":          # don't capture a Single frame by itself
+            commander.send(f"MODE {old['mode']}")
+
     # ---- redraw --------------------------------------------------------------
     fps = {"t": time.monotonic(), "n": 0, "value": 0.0}
 
     def update():
+        show_connection()
+        restore_after_restart()
         sync_from_board()
         show_measurements()
         message.setText(reader.last_message)
@@ -538,26 +706,22 @@ def main():
     p.add_argument("--text", action="store_true", help="print stats instead of plotting")
     args = p.parse_args()
 
-    try:
-        ser = serial.Serial(args.port, args.baud, timeout=1)
-    except serial.SerialException as e:
-        sys.exit(f"cannot open {args.port}: {e}")
-
-    ser.reset_input_buffer()
-    reader = FrameReader(ser, rate_hz=args.rate)
-    commander = Commander(ser)
+    # no exit if the port is missing: the link waits for the board to appear
+    link = SerialLink(args.port, args.baud)
+    reader = FrameReader(link, rate_hz=args.rate)
+    commander = Commander(link)
     start_command_input(commander)
     print("commands: RATE <hz> | LEVEL <0-4095> | EDGE R|F | MODE A|N|S", flush=True)
 
     try:
         if args.text:
-            run_text(reader)
+            run_text(reader, link)
         else:
-            run_gui(reader, commander)
+            run_gui(reader, commander, link)
     except KeyboardInterrupt:
         pass
     finally:
-        ser.close()
+        link.close()
 
 
 if __name__ == "__main__":
