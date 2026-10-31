@@ -9,6 +9,7 @@
 #include "drivers/dac.hpp"
 #include "drivers/tim.hpp"
 #include "drivers/uart.hpp"
+#include "drivers/opamp.hpp"
 #include <cinttypes>
 #include <cstdio>
 namespace {
@@ -42,6 +43,7 @@ int main() {
   app::commands::Settings settings;
   app::commands::Parser parser{settings};
   bsp::init();
+  drivers::opamp::init();
   drivers::uart::init(UART_BAUDRATE);
   drivers::adc::init();
   drivers::dac::init();

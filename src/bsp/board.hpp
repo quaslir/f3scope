@@ -22,4 +22,8 @@ inline DAC_TypeDef *const DAC_INSTANCE = DAC1;
 inline constexpr uint16_t DAC_CHANNEL = DAC_CHANNEL_1;
 inline TIM_TypeDef *const ADC_TIMER = TIM6;
 inline TIM_TypeDef *const DAC_TIMER = TIM7;
+inline GPIO_TypeDef *const OPAMP_PORT = GPIOA;
+inline OPAMP_TypeDef *const OPAMP_INSTANCE = OPAMP2;
+inline constexpr uint16_t OPAMP_IN = GPIO_PIN_7;
+inline constexpr uint16_t OPAMP_OUT = GPIO_PIN_6;
 } // namespace bsp::board

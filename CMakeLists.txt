@@ -34,6 +34,8 @@ add_library(hal OBJECT
     ${HAL_DIR}/Src/stm32f3xx_hal_dac.c
     ${HAL_DIR}/Src/stm32f3xx_hal_dac_ex.c
     startup/system_stm32f3xx.c
+    ${HAL_DIR}/Src/stm32f3xx_hal_opamp.c
+    ${HAL_DIR}/Src/stm32f3xx_hal_opamp_ex.c
 )
 target_include_directories(hal PUBLIC
     ${CMAKE_SOURCE_DIR}/src                                   # stm32f3xx_hal_conf.h
@@ -53,9 +55,9 @@ add_executable(firmware
 
     src/drivers/uart.cpp
     src/drivers/adc.cpp
-
     src/drivers/tim.cpp
     src/drivers/dac.cpp
+    src/drivers/opamp.cpp
 
     src/app/wavegen.cpp
     src/app/protocol.cpp
